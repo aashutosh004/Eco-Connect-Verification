@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Face Verification Test</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; line-height: 1.4; margin: 24px; }
+    h2 { margin-top: 32px; }
+    fieldset { border: 1px solid #ddd; padding: 16px; border-radius: 8px; }
+    label { display:block; margin: 8px 0 4px; font-weight: 600; }
+    .row { display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start; }
+    .col { flex:1 1 320px; min-width:280px; }
+    video, canvas, img { width: 100%; max-width: 360px; border-radius: 8px; background:#000; }
+    button { cursor:pointer; padding:10px 14px; border:0; border-radius:8px; background:#0d6efd; color:#fff; }
+    button.secondary { background:#6c757d; }
+    button.ghost { background:#f0f0f0; color:#333; }
+    .thumbs { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+    .thumbs img { width: 96px; height: 96px; object-fit: cover; border:1px solid #ccc; }
+    pre { background:#111; color:#0f0; padding:12px; border-radius:8px; overflow:auto; max-height:240px; }
+    .muted { color:#666; font-size: 12px; }
+    input[type="text"] { padding:8px; border:1px solid #ccc; border-radius:6px; width:100%; }
+    select { padding:8px; border:1px solid #ccc; border-radius:6px; width:100%; }
+    .api { display:flex; gap:8px; align-items:center; margin-bottom: 12px; }
+    .api input { width: 360px; }
+  </style>
+</head>
+<body>
+  <h1>Face Enrollment + Task Verification (Test Page)</h1>
+
+  <div class="api">
+    <label for="apiBase">API base</label>
+    <input id="apiBase" type="text" value="http://127.0.0.1:5000" />
+    <button class="ghost" id="btnHealth">Ping /api/health</button>
+    <span id="healthStatus" class="muted"></span>
+  </div>
+
+  <!-- ===== ENROLL ===== -->
+  <h2>1) Signup / Enroll (3–5 shots recommended)</h2>
+  <fieldset class="row">
+    <div class="col">
+      <label>Username</label>
+      <input id="enrollUsername" type="text" placeholder="e.g. ritesh" />
+
+      <div class="muted" style="margin-top:8px">
+        Capture 3–5 shots with slightly different angles/expressions, or upload files.
+      </div>
+
+      <div style="margin-top:8px">
+        <button id="btnStartCam">Start Camera</button>
+        <button id="btnCapture" class="secondary" disabled>Capture</button>
+        <button id="btnClearShots" class="ghost">Clear Shots</button>
+      </div>
+
+      <div class="row" style="margin-top:8px">
+        <video id="video" playsinline autoplay muted></video>
+        <canvas id="canvas" hidden></canvas>
+      </div>
+
+      <div class="thumbs" id="enrollThumbs"></div>
+
+      <label style="margin-top:12px">Or upload files</label>
+      <input id="enrollFiles" type="file" accept="image/*" multiple />
+
+      <div style="margin-top:12px">
+        <button id="btnEnroll">Submit Signup</button>
+      </div>
+    </div>
+
+    <div class="col">
+      <label>Response</label>
+      <pre id="enrollOut">{}</pre>
+    </div>
+  </fieldset>
+
+  <!-- ===== VERIFY ===== -->
+  <h2>2) Verify Task</h2>
+  <fieldset class="row">
+    <div class="col">
+      <label>Username</label>
+      <input id="verifyUsername" type="text" placeholder="same username as enrolled" />
+
+      <label style="margin-top:8px">Task</label>
+      <select id="verifyTask">
+        <option value="plantation">plantation</option>
+        <option value="waste collection">waste collection</option>
+        <option value="feeding animal">feeding animal</option>
+      </select>
+
+      <div style="margin-top:8px">
+        <button id="btnStartCam2">Start Camera</button>
+        <button id="btnCapture2" class="secondary" disabled>Capture</button>
+        <button id="btnClearVerify" class="ghost">Clear</button>
+      </div>
+
+      <div class="row" style="margin-top:8px">
+        <video id="video2" playsinline autoplay muted></video>
+        <canvas id="canvas2" hidden></canvas>
+      </div>
+
+      <div class="thumbs" id="verifyThumb"></div>
+
+      <label style="margin-top:12px">Or upload file</label>
+      <input id="verifyFile" type="file" accept="image/*" />
+
+      <div style="margin-top:12px">
+        <button id="btnVerify">Submit Verification</button>
+      </div>
+      <div class="muted">Note: backend runs face match + liveness + YOLO; response can take a few seconds on CPU.</div>
+    </div>
+
+    <div class="col">
+      <label>Response</label>
+      <pre id="verifyOut">{}</pre>
+    </div>
+  </fieldset>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+
+  function dataURLToBlob(dataURL) {
+    const [head, body] = dataURL.split(',');
+    const mime = head.match(/:(.*?);/)[1];
+    const bin = atob(body);
+    const len = bin.length;
+    const u8 = new Uint8Array(len);
+    for (let i = 0; i < len; i++) u8[i] = bin.charCodeAt(i);
+    return new Blob([u8], { type: mime });
+  }
+
+  async function captureFrameToBlob(videoEl, maxSide = 640, quality = 0.92) {
+    const w = videoEl.videoWidth, h = videoEl.videoHeight;
+    if (!w || !h) throw new Error("Video not ready yet.");
+    let newW = w, newH = h;
+    if (Math.max(w, h) > maxSide) {
+      if (w >= h) { newW = maxSide; newH = Math.round(h * (maxSide / w)); }
+      else { newH = maxSide; newW = Math.round(w * (maxSide / h)); }
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = newW; canvas.height = newH;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(videoEl, 0, 0, newW, newH);
+    const blob = dataURLToBlob(canvas.toDataURL('image/jpeg', quality));
+    return blob;
+  }
+
+  function blobToThumb(blob, container) {
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => URL.revokeObjectURL(url);
+    img.src = url;
+    container.appendChild(img);
+  }
+
+  async function startCamera(videoEl, btnCapture) {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
+    videoEl.srcObject = stream;
+    await videoEl.play();
+    btnCapture.disabled = false;
+    return stream;
+  }
+  function stopCamera(videoEl) {
+    const s = videoEl.srcObject;
+    if (s && s.getTracks) s.getTracks().forEach(t => t.stop());
+    videoEl.srcObject = null;
+  }
+  function setOut(el, json) {
+    el.textContent = JSON.stringify(json, null, 2);
+  }
+
+  // Health
+  const apiBase = $('apiBase');
+  $('btnHealth').addEventListener('click', async () => {
+    $('healthStatus').textContent = '…';
+    try {
+      const r = await fetch(`${apiBase.value}/api/health`);
+      const j = await r.json();
+      $('healthStatus').textContent = j.ok ? 'OK' : 'Failed';
+    } catch {
+      $('healthStatus').textContent = 'Failed';
+    }
+  });
+
+  // ENROLL
+  let enrollStream = null;
+  const enrollShots = [];
+  $('btnStartCam').addEventListener('click', async () => {
+    try { enrollStream = await startCamera($('video'), $('btnCapture')); }
+    catch (e) { alert(e.message); }
+  });
+  $('btnCapture').addEventListener('click', async () => {
+    try {
+      const blob = await captureFrameToBlob($('video'));
+      enrollShots.push(blob);
+      blobToThumb(blob, $('enrollThumbs'));
+    } catch (e) { alert(e.message); }
+  });
+  $('btnClearShots').addEventListener('click', () => {
+    enrollShots.length = 0;
+    $('enrollThumbs').innerHTML = '';
+  });
+  $('btnEnroll').addEventListener('click', async () => {
+    const username = $('enrollUsername').value.trim();
+    if (!username) return alert('Username required');
+
+    const fd = new FormData();
+    fd.append('username', username);
+
+    if (enrollShots.length > 0) {
+      enrollShots.forEach((b, i) => fd.append('images[]', b, `shot_${i+1}.jpg`));
+      // IMPORTANT: do NOT send 'image' duplicate here
+    } else {
+      const files = $('enrollFiles').files;
+      if (!files || files.length === 0) return alert('Capture shots or upload files first');
+      for (let i=0;i<files.length;i++) fd.append('images[]', files[i], files[i].name);
+    }
+
+    const r = await fetch(`${apiBase.value}/api/signup`, { method:'POST', body: fd });
+    const j = await r.json().catch(()=>({}));
+    setOut($('enrollOut'), j);
+  });
+  window.addEventListener('beforeunload', () => stopCamera($('video')));
+
+  // VERIFY
+  let verifyStream = null;
+  let verifyBlob = null;
+  $('btnStartCam2').addEventListener('click', async () => {
+    try { verifyStream = await startCamera($('video2'), $('btnCapture2')); }
+    catch (e) { alert(e.message); }
+  });
+  $('btnCapture2').addEventListener('click', async () => {
+    try {
+      verifyBlob = await captureFrameToBlob($('video2'));
+      $('verifyThumb').innerHTML = '';
+      blobToThumb(verifyBlob, $('verifyThumb'));
+    } catch (e) { alert(e.message); }
+  });
+  $('btnClearVerify').addEventListener('click', () => {
+    verifyBlob = null;
+    $('verifyThumb').innerHTML = '';
+    $('verifyFile').value = '';
+  });
+  $('btnVerify').addEventListener('click', async () => {
+    const username = $('verifyUsername').value.trim();
+    const task = $('verifyTask').value;
+    if (!username) return alert('Username required');
+
+    const fd = new FormData();
+    fd.append('username', username);
+    fd.append('task', task);
+
+    if (verifyBlob) {
+      fd.append('file', verifyBlob, 'verify.jpg');
+    } else {
+      const f = $('verifyFile').files[0];
+      if (!f) return alert('Capture a frame or upload a file');
+      fd.append('file', f, f.name);
+    }
+
+    const r = await fetch(`${apiBase.value}/api/verify`, { method:'POST', body: fd });
+    const j = await r.json().catch(()=>({}));
+    setOut($('verifyOut'), j);
+  });
+  window.addEventListener('beforeunload', () => stopCamera($('video2')));
+</script>
+</body>
+</html>

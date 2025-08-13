@@ -1,0 +1,25 @@
+# --- Web / API ---
+flask==3.0.3
+flask-cors==4.0.1
+werkzeug==3.0.3
+
+# --- Core scientific / imaging ---
+numpy==1.26.4
+opencv-python==4.10.0.84
+pillow==10.4.0
+
+# --- InsightFace (face detect/align/embedding via ONNXRuntime) ---
+insightface==0.7.3
+onnxruntime==1.19.2
+
+# --- PyTorch (for liveness model MiniFASNet) ---
+# Use the CPU build by default. If you have CUDA, install the matching CUDA wheels instead.
+torch==2.3.1
+torchvision==0.18.1
+
+# --- YOLOv8 for task detection ---
+ultralytics==8.2.60
+
+# --- Optional utilities (only if you use them) ---
+# python-dotenv==1.0.1   # load env vars from .env (if you add this)
+# requests==2.32.3       # if you later call external APIs
