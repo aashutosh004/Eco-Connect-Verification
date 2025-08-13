@@ -328,4 +328,4 @@ CMD ["python", "app.py"]
 ---
 
 ## 🧭 Maintainers
-- Team-Z(Ashutosh)
+-> Team-Z(Ashutosh)
